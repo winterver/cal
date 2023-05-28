@@ -97,60 +97,100 @@ void next()
 	{
 		token = c;
 	}
-	else	
+	else if (c == '0')
 	{
-		if (c == '0')
+		c = getc(in);
+		if (c == 'b' || c == 'B')
 		{
-			c = getc(in);
-			if (c == 'b' || c == 'B')
-			{
-				error("binary literal current not supported");
-			}
-			else if (c == 'x' || c == 'X')
-			{
-				fscanf(in, "%llx", &num);
-				token = NUM;
-			}
-			else
-			{
-				error("unknown literal");
-			}
-		}
-		else if ('1' <= c && c <= '9')
-		{
-			ungetc(c, in);
-			fscanf(in, "%lld", &num);
-			token = NUM;
-		}
-		else if (('a' <= c && c <= 'z')
-			|| ('A' <= c && c <= 'Z')
-			|| c == '_')
-		{
-			ungetc(c, in);
-			int i = 0;
-			for(; i < (MAXLEN-1); i++)
+			// binary literal
+			long long val = 0;
+			while(1)
 			{
 				c = getc(in);
-				if (('a' <= c && c <= 'z')
-					|| ('A' <= c && c <= 'Z')
-					|| ('0' <= c && c <= '9')
-					|| c == '_')
+				if (c == '0' || c == '1')
 				{
-					id[i] = c;
-				}
+					val <<= 1;
+					val += c-'0';
+				}	
 				else
 				{
-					id[i] = 0;
 					ungetc(c, in);
 					break;
 				}
 			}
-			token = ID;
+			num = val;
+			token = NUM;
+		}
+		else if (c == 'o' || c == 'O')
+		{
+			// octal literal
+			long long val = 0;
+			while(1)
+			{
+				c = getc(in);
+				if ('0' <= c && c <= '7')
+				{
+					val <<= 3;
+					val += c-'0';
+				}	
+				else
+				{
+					ungetc(c, in);
+					break;
+				}
+			}
+			num = val;
+			token = NUM;
+		}
+		else if (c == 'x' || c == 'X')
+		{
+			fscanf(in, "%llx", &num);
+			token = NUM;
 		}
 		else
 		{
-			error("unknown character");
+			ungetc(c, in);
+			ungetc('0', in);
+			// try reading it as a decimal integer literal
+			fscanf(in, "%lld", &num);
+			token = NUM;
 		}
+	}
+	else if ('1' <= c && c <= '9')
+	{
+		// decimal integer literal
+		ungetc(c, in);
+		fscanf(in, "%lld", &num);
+		token = NUM;
+	}
+	else if (('a' <= c && c <= 'z')
+		|| ('A' <= c && c <= 'Z')
+		|| c == '_')
+	{
+		ungetc(c, in);
+		int i = 0;
+		for(; i < (MAXLEN-1); i++)
+		{
+			c = getc(in);
+			if (('a' <= c && c <= 'z')
+				|| ('A' <= c && c <= 'Z')
+				|| ('0' <= c && c <= '9')
+				|| c == '_')
+			{
+				id[i] = c;
+			}
+			else
+			{
+				id[i] = 0;
+				ungetc(c, in);
+				break;
+			}
+		}
+		token = ID;
+	}
+	else
+	{
+		error("unknown character");
 	}
 }
 
@@ -286,6 +326,87 @@ long long expression()
 	return term1();
 }
 
+void printvar()
+{
+	match(':');
+	if (token == '\n')
+	{
+		struct var* it;
+		for(it = vars; it != NULL; it = it->next)
+		{
+			printf("%s = %lld, 0x%llX, 0o%llo\n",
+				it->name, it->val, it->val, it->val);
+		}
+	}
+	else
+	{
+		while(token == ID)
+		{
+			char name[MAXLEN];
+			strcpy(name, id);
+			match(ID);
+		
+			long long val = getval(name);
+			printf("%s = %lld, 0x%llX, 0o%llo\n",
+				name, val, val, val);
+		}
+	}
+}
+
+long long opexpr(char* name)
+{
+	long long val = getval(name);
+	if (token == '+')
+	{
+		match('+');
+		val += expression();
+	}
+	else if (token == '-')
+	{
+		match('-');
+		val -= expression();
+	}
+	else if (token == '*')
+	{
+		match('*');
+		val *= expression();
+	}
+	else if (token == '/')
+	{
+		match('/');
+		val /= expression();
+	}
+	else if (token == '%')
+	{
+		match('%');
+		val %= expression();
+	}
+	else if (token == '&')
+	{
+		match('&');
+		val &= expression();
+	}
+	else if (token == '^')
+	{
+		match('^');
+		val ^= expression();
+	}
+	else if (token == '|')
+	{
+		match('|');
+		val |= expression();
+	}
+	else if (token == '\n')
+	{
+		// DO NOTHING
+	}
+	else
+	{
+		error("unexpected expression");
+	}
+	return val;
+}
+
 void program()
 {
 	printf("> ");	
@@ -299,18 +420,10 @@ void program()
 			// empty statement
 			// DO NOTHING
 		}
-		if (token == ':')
+		else if (token == ':')
 		{
-			match(':');
-			while(token == ID)
-			{
-				char name[MAXLEN];
-				strcpy(name, id);
-				match(ID);
-			
-				long long val = getval(name);
-				printf("%s = DEC %020lld HEX %016llX\n", name, val, val);
-			}
+			// print-var statement
+			printvar();
 		}
 		else if (token == ID)
 		{
@@ -320,66 +433,21 @@ void program()
 
 			if (token == '=')
 			{
+				// assignment
 				match('=');
 				val = expression();
 				setvar(name, val);
 			}
 			else
 			{
-				val = getval(name);
-				if (token == '+')
-				{
-					match('+');
-					val += expression();
-				}
-				else if (token == '-')
-				{
-					match('-');
-					val -= expression();
-				}
-				else if (token == '*')
-				{
-					match('*');
-					val *= expression();
-				}
-				else if (token == '/')
-				{
-					match('/');
-					val /= expression();
-				}
-				else if (token == '%')
-				{
-					match('%');
-					val %= expression();
-				}
-				else if (token == '&')
-				{
-					match('&');
-					val &= expression();
-				}
-				else if (token == '^')
-				{
-					match('^');
-					val ^= expression();
-				}
-				else if (token == '|')
-				{
-					match('|');
-					val |= expression();
-				}
-				else if (token == '\n')
-				{
-					// DO NOTHING
-				}
-				else
-				{
-					error("unexpected expression");
-				}
+				// expression starting with an ID
+				val = opexpr(name);
 				printf("%lld\n", val);
 			}
 		}
 		else
 		{
+			// expression starting with an NUM
 			val = expression();
 			printf("%lld\n", val);
 		}
@@ -388,10 +456,9 @@ void program()
 	}
 }
 
-int main()
+void printtokens()
 {
-	in = stdin;
-	/*while(token != EOF)
+	while(token != EOF)
 	{
 		next();
 		switch(token)
@@ -400,6 +467,15 @@ int main()
 		case NUM: printf("NUM %lld\n", num); break;
 		default: printf("SYM %c\n", token); break;
 		}
-	}*/
+	}
+}
+
+int main()
+{
+	in = stdin;	
+#if 0
+	printtokens();
+#else
 	program();
+#endif
 }
